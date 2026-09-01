@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# 环境与数据(密钥与生成物不入库)
+backend/.env
+backend/data/app.db
+backend/data/chroma/
+backend/data/raw/
+
+# Node
+node_modules/
+frontend/dist/
+
+# 杂项
+.DS_Store
+*.log
