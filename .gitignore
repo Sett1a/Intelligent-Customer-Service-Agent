@@ -8,6 +8,7 @@ backend/.env
 backend/data/app.db
 backend/data/chroma/
 backend/data/raw/
+backend/eval/
 
 # Node
 node_modules/

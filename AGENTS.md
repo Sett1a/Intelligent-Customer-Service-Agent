@@ -11,6 +11,8 @@
 - **LLM / Embedding**:智谱 GLM(`glm-4-flash` 免费 / `embedding-3` 1024 维),
   OpenAI 兼容端点 `https://open.bigmodel.cn/api/paas/v4/`
 - **RAG**:LlamaIndex 0.14(切分/索引/检索)+ Chroma 1.x(本地持久化向量库)
+  + BM25 混合检索(rank-bm25/jieba)+ 交叉编码器重排(默认智谱 rerank API;
+  设计路线/调优方法/结果台账见 docs/rag-hybrid-design.md,2026-09-03 落地)
 - **后端**:FastAPI + SQLite(aiosqlite),SSE 流式对话;uv 管理依赖(Python 3.13)
 - **前端**:Vue 3 + Vite + Element Plus + markdown-it/highlight.js
 - 决策过程与备选方案见下方「调研结论」;详细启动步骤见 README.md。
@@ -33,6 +35,8 @@ uv sync                                    # 安装依赖
 uv run uvicorn app.main:app --port 8000 --reload   # 启动后端
 uv run python scripts/prepare_dataset.py   # 下载 JDDC 语料 → 抽取 QA 对 → data/raw/kb.jsonl
 uv run python scripts/ingest.py            # 建向量索引(--fake 无 Key 干跑 / --reset 重建)
+uv run python scripts/eval_rag.py          # 检索评测:50 题固定种子,Recall/Precision/MRR(--json 落盘)
+uv run python scripts/tune_rag.py          # 检索超参网格搜索(缓存双路候选+重排分数,组合秒级)
 
 # 前端(在 frontend/ 下)
 npm install
@@ -58,6 +62,16 @@ Agent 工具链可用 pydantic_ai 的 TestModel 离线验证(`agent.override(mod
 - 依赖版本:pydantic-ai 与 llama-index 迭代快,升级后必须重跑冒烟
   (2.x 的 `OpenAIChatModel` 必须显式传模型名;`BaseEmbedding` 在
   `llama_index.core.embeddings` 下)。
+- 检索默认走混合链路 `app/rag/hybrid.py`(BM25×向量加权融合 α=0.5 → 智谱交叉编码器
+  重排候选 20 → 返回 5 块);`RETRIEVAL_MODE=dense` 回退旧行为。调参改配置后跑
+  `eval_rag.py` 确认 Recall@5 ≥ 0.95。
+- 查询拆分(分点检索)默认开启:`retrieve_knowledge` 内先经 `decompose_agent`
+  (Pydantic AI 结构化输出)拆检索点,逐点召回后「原句锚定 top-5 + 拆分点新块追加」
+  合并;`QUERY_DECOMPOSITION=0` 关闭。合并策略做过 4 版对比,勿改回全局重排序
+  (会把单意图 gold 挤出 top-5,详见设计文档 §7.2)。
+- 单例锁必须用 `threading.RLock`:`get_hybrid_retriever` 持锁构建时会嵌套调
+  `get_corpus` 再加锁,`threading.Lock` 会同线程自死锁(表现为请求永久挂起,勿改回)。
+- `backend/eval/results/` 是评测生成物(gitignore);指标口径与调参协议见设计文档 §4。
 
 ## 调研结论 (2026-09 网络调研 → 已落地)
 

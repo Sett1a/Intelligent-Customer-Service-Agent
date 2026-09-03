@@ -22,7 +22,7 @@
 |---|---|
 | Agent 编排 | [Pydantic AI](https://ai.pydantic.dev/) 2.x(工具调用、message_history 上下文) |
 | LLM / Embedding | 智谱 GLM(`glm-5.3-flash` 混合推理 / `embedding-3` 1024 维,OpenAI 兼容端点) |
-| RAG | [LlamaIndex](https://www.llamaindex.ai/)(切分、索引、检索) |
+| RAG | [LlamaIndex](https://www.llamaindex.ai/)(切分、索引、检索)+ BM25 混合检索(rank-bm25/jieba)+ 交叉编码器重排(智谱 rerank API) |
 | 向量库 | Chroma 1.x(本地持久化) |
 | 后端 | FastAPI + SQLite(aiosqlite),SSE 流式输出 |
 | 前端 | Vue 3 + Vite + Element Plus(markdown-it + highlight.js 渲染) |
@@ -31,10 +31,22 @@
 
 ```
 Vue 前端 ──SSE──> FastAPI ──> Pydantic AI Agent ──┬─> glm-5.3-flash(生成)
-                          │                      ├─> retrieve_knowledge ──> LlamaIndex retriever ──> Chroma
+                          │                      ├─> retrieve_knowledge ──> 查询拆分子 agent(结构化输出)
+                          │                      │      分点混合检索:BM25(jieba)×向量(Chroma)
+                          │                      │      逐点重排 → 原句锚定 + 拆分点新块补位 → 上下文
                           │                      ├─> get_order_status / get_logistics ──> data/mock/orders.json
                           │                      └─> escalate_to_human(转人工标记)
                           └─> SQLite(会话 + 消息;每轮加载全部历史作为 message_history)
+```
+
+检索质量:50 题固定种子评测,Recall@5 从纯向量基线的 0.72 提升到 **0.96**(目标 ≥0.95),
+top-1 准确率 0.52 → 0.84。设计路线、超参调优方法与完整结果台账见
+[docs/rag-hybrid-design.md](docs/rag-hybrid-design.md);复现命令:
+
+```bash
+cd backend
+uv run python scripts/eval_rag.py --json    # 检索评测(50 题,Recall/Precision/MRR)
+uv run python scripts/tune_rag.py           # 检索超参网格搜索
 ```
 
 ## 快速开始
@@ -91,10 +103,14 @@ backend/
     api.py           # 会话 CRUD + SSE 对话
     rag/
       embeddings.py  # 智谱 embedding-3 / FakeEmbedding
-      retriever.py   # Chroma → LlamaIndex retriever
+      retriever.py   # 检索入口:hybrid(默认)/ dense 分发
+      hybrid.py      # BM25×向量混合检索 + 融合 + 交叉编码器重排
   scripts/
     prepare_dataset.py   # JDDC 下载与清洗
     ingest.py            # 建向量索引(--fake / --reset)
+    eval_rag.py          # 检索评测(50 题,Recall/Precision/MRR,--decompose 分点模式)
+    tune_rag.py          # 检索超参网格搜索
+    eval_compound.py     # 多意图复合问题检索对比
   data/
     mock/orders.json     # 演示订单
     raw/  chroma/        # 生成物(不入库)

@@ -15,7 +15,13 @@ dependencies = [
     "python-dotenv>=1.0",
     "openai>=1.60",
     "httpx>=0.28",
+    "rank-bm25>=0.2.2",
+    "jieba>=0.42.1",
 ]
 
 [tool.uv]
 package = false
+
+# 可选组件:本地交叉编码器重排(默认用智谱 rerank API,无需安装)
+[project.optional-dependencies]
+rerank-local = ["fastembed>=0.6"]
